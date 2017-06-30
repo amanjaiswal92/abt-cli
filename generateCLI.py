@@ -4,6 +4,8 @@ import json
 import template as tm
 import time
 import argparse
+from config import *
+
 PROJECT = "Project"
 CLI_PATH = "/cli/src/product/"
 CLI_NAME = "cli"
@@ -12,7 +14,9 @@ def readData(jsonFile):
     with open(jsonFile) as data_file:    
         try:
             data = json.load(data_file)
-        except:
+            logger.info("JSON file read success.")
+        except Exception as ex:
+            logger.error(ex, "Invalid JSON file")
             print "Invalid JSON file"
             exit(1)
     return data
@@ -20,7 +24,7 @@ def readData(jsonFile):
 
 def commandStruct(val, feature, fp):
     try:
-
+        logger.info("Creating command structure")
         if val == {} or val == '':
             return
         key = val.keys()
@@ -42,13 +46,15 @@ def commandStruct(val, feature, fp):
         fp.write("}\n")
         for i in key:
            commandStruct(val[i],i, fp) 
-
+        logger.info("Command structure success.")
     except Exception as e:
+        logger.error(e, "Command structure failed.")
         print e
 
 
 
 def createData(val,str1):
+    logger.info("Create data {}/{}".format(val, str1) )
     pc = 'readline.PcItem('
     if val == {}:
         return str1
@@ -60,6 +66,7 @@ def createData(val,str1):
             data = createData(v, str1)
             return data + '),'
     except Exception as e:
+        logger.error(e)
 	print e
 
 
