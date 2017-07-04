@@ -1,40 +1,371 @@
 import time
+
+from config import *
+
+
 def StructureHeaderTemplates(feature):
+    logger.info("StructureHeaderTemplates")
     header = 'import(\n\
         "fmt"\n\
         "github.com/chzyer/readline"\n\
         "github.com/codegangsta/cli"\n\
         "product/common"\n\
       )\n'
+    
+    logger.info("StructureHeaderTemplates success")
     return 'package '+feature+'\n'+header
 
 def GetCommonTemplate():
+    logger.info("GetCommonTemplate")
+
     template = '\n\
-package common\n\
-\n\
+package common \n\
 import (\n\
-        "github.com/codegangsta/cli"\n\
-        "github.com/chzyer/readline"\n\
-        "product/logger"\n\
+	"fmt"\n\
+	"github.com/codegangsta/cli"\n\
+	"github.com/chzyer/readline"\n\
+	"io/ioutil"\n\
+        "net"\n\
+        "net/url"\n\
+	"net/http"\n\
+	"os"\n\
+	"bytes"\n\
+	"encoding/json"\n\
+	"time"\n\
+	"errors"\n\
+	"strings"\n\
+	"io"\n\
+	"bufio"\n\
+	"mime/multipart"\n\
+	"regexp"\n\
+        "crypto/x509"\n\
+	"crypto/tls"\n\
+        "strconv"\n\
 )\n\
 \n\
+var SessionFile string\n\
+const DefaultTimeoutSeconds int = 60\n\
+const DefaultSessionTimeoutMinutes int = 60\n\
+var TimeoutSeconds int = DefaultTimeoutSeconds\n\
 var RlSession *readline.Instance\n\
-var logs = logger.GetLogger(logger.GetLoggerName("common"))\n\
 \n\
+var InteractiveMode bool\n\
+var SecureHttpFlag bool\n\
 \n\
-type RestCall func(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error)\n\
-func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error){\n\
-    return []byte{\'A\'}, nil\n\
+type invalidResponse struct {\n\
+    Message string `json:"message"`\n\
+    Success bool   `json:"success"`\n\
 }\n\
 \n\
-type fn func(*cli.Context, string, string, RestCall) bool\n\
+\n\
+func Jsonfy(body []byte) bool {\n\
+        var out bytes.Buffer\n\
+        err := json.Indent(&out, body, "", "  ")\n\
+        if err != nil {\n\
+            fmt.Fprintln(os.Stderr, "Unable to pretty print JSON: ", err)\n\
+            return false\n\
+        }\n\
+        fmt.Print(string(out.Bytes())+"\n")\n\
+        return true\n\
+}\n\
+\n\
+\n\
+func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[string]string, caFile string, skipVerifyFlag bool)([]byte, error){\n\
+    var bodyStream = []byte(reqBody)\n\
+    tls_connection_url := reqUrl\n\
+    req, err := http.NewRequest(reqType, reqUrl, bytes.NewBuffer(bodyStream))\n\
+    if err != nil {\n\
+        fmt.Fprintln(os.Stderr, "Error creating request: ", err)\n\
+    }\n\
+\n\
+    for key, value := range headerMap {\n\
+        req.Header.Set(key, value)\n\
+    }\n\
+\n\
+    var client *http.Client\n\
+    var tlsConfig = &tls.Config{}\n\
+\n\
+    if caFile == "" {\n\
+        tlsConfig = &tls.Config{\n\
+            InsecureSkipVerify: true,\n\
+        }\n\
+    } else {\n\
+        caCert, err := ioutil.ReadFile(caFile)\n\
+        if err != nil {\n\
+            fmt.Println("Failed to open certificate file")\n\
+            return nil, err\n\
+        }\n\
+\n\
+        // create the set of root certificates\n\
+        caCertPool := x509.NewCertPool()\n\
+        ok := caCertPool.AppendCertsFromPEM(caCert)\n\
+        if !ok {\n\
+            fmt.Println("Failed to parse root certificate")\n\
+            return nil, errors.New("Failed to parse root certificate")\n\
+        }\n\
+\n\
+        // creating tls request url to check connection\n\
+        if string(reqUrl[4]) == "s" {\n\
+            tls_connection_url = strings.TrimRight(string(reqUrl[8:]), "/login")\n\
+        } else {\n\
+            tls_connection_url = strings.TrimRight(string(reqUrl[7:]), "/login")\n\
+        }\n\
+\n\
+        // Setup HTTPS client\n\
+        if skipVerifyFlag {\n\
+            tlsConfig = &tls.Config{\n\
+                RootCAs:      caCertPool,\n\
+                InsecureSkipVerify: true,\n\
+            }\n\
+        } else {\n\
+            tlsConfig = &tls.Config{\n\
+                RootCAs:      caCertPool,\n\
+            }\n\
+        }\n\
+\n\
+        // checking if connection is successful\n\
+        conn, err := tls.Dial("tcp", tls_connection_url, tlsConfig)\n\
+	if err != nil {\n\
+	    fmt.Println("Failed to connect: " + err.Error())\n\
+            return nil, errors.New("Failed to connect: " + err.Error())\n\
+	}\n\
+	conn.Close()\n\
+    }\n\
+    client = GetClient(url)\n\
+    resp, err := client.Do(req)\n\
+    if err != nil {\n\
+    	fmt.Fprintln(os.Stderr, err)\n\
+        logs.Error(err)\n\
+        return nil, err\n\
+    }\n\
+\n\
+    defer resp.Body.Close()\n\
+    body,err := ioutil.ReadAll(resp.Body)\n\
+    if err != nil {\n\
+    	fmt.Fprintln(os.Stderr, "Unable to read response body: ", err)\n\
+        logs.Error("Unable to read response body: ", err)\n\
+    	return nil, err\n\
+    }\n\
+    if resp.StatusCode != 200 {\n\
+    	fmt.Fprintln(os.Stderr, resp.Status)\n\
+        logs.Error(resp.Status)\n\
+    	var errResponse invalidResponse\n\
+    	err = json.Unmarshal(body, &errResponse)\n\
+        if err != nil {\n\
+            fmt.Fprintln(os.Stderr, "Unable to parse error response")\n\
+            logs.Error("Unable to parse error response")\n\
+        }\n\
+        fmt.Fprintln(os.Stderr, errResponse.Message)\n\
+        logs.Error(errResponse.Message)\n\
+    	return nil, errors.New(errResponse.Message)\n\
+    }\n\
+    return body, nil\n\
+}\n\
+\n\
+\n\
+func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error){\n\
+	var bodyStream = []byte(reqBody)\n\
+	req, err := http.NewRequest(reqType, reqUrl, bytes.NewBuffer(bodyStream))\n\
+	if err != nil {\n\
+		fmt.Fprintln(os.Stderr, "Error creating request: ", err)\n\
+	}\n\
+	for key, value := range headerMap {\n\
+		req.Header.Set(key, value)\n\
+	}\n\
+	var client *http.Client\n\
+        client = GetClient(url)\n\
+\n\
+   resp, err := client.Do(req)\n\
+\n\
+    if err != nil {\n\
+        fmt.Fprintln(os.Stderr, err)\n\
+        return nil, err\n\
+    }\n\
+\n\
+    defer resp.Body.Close()\n\
+    body,err := ioutil.ReadAll(resp.Body)\n\
+    if err != nil {\n\
+    	fmt.Fprintln(os.Stderr, "Unable to read response body: ", err)\n\
+    	return nil, err\n\
+    }\n\
+    if resp.StatusCode != 200 {\n\
+    	fmt.Fprintln(os.Stderr, resp.Status)\n\
+        logs.Error(resp.Status)\n\
+    	var errResponse invalidResponse\n\
+    	err = json.Unmarshal(body, &errResponse)\n\
+        if err != nil {\n\
+            fmt.Fprintln(os.Stderr, "Unable to parse error response")\n\
+        }\n\
+        fmt.Fprintln(os.Stderr, errResponse.Message)\n\
+    	return nil, errors.New(errResponse.Message)\n\
+    }\n\
+    if resp.Header["Token"] != nil {\n\
+        if string(resp.Header["Token"][0]) != token_string {\n\
+            err = resetToken(string(resp.Header["Token"][0]))\n\
+            if err != nil {\n\
+                return nil, err\n\
+            }\n\
+        }\n\
+    }\n\
+\n\
+    return body, nil\n\
+}\n\
+\n\
+func RestDownload(reqType string, reqUrl string, outfile string, headerMap map[string]string)([]byte, error){\n\
+	fmt.Println("Downloading", reqUrl, "to", outfile)\n\
+	req, err := http.NewRequest(reqType, reqUrl, nil)\n\
+\n\
+	if err != nil {\n\
+		fmt.Fprintln(os.Stderr, "Error creating request: ", err)\n\
+	}\n\
+\n\
+	for key, value := range headerMap {\n\
+		req.Header.Set(key, value)\n\
+	}\n\
+	var client *http.Client\n\
+	SecureHttpFlag = false\n\
+\n\
+        client = GetClient(url)\n\
+	resp, err := client.Do(req)\n\
+	if err != nil {\n\
+            return nil, err\n\
+	}\n\
+\n\
+	defer resp.Body.Close()\n\
+\n\
+\n\
+	if resp.StatusCode != 200 {\n\
+	    return nil, errors.New(resp.Status)\n\
+	}\n\
+\n\
+	output, err := os.Create(outfile)\n\
+	if err != nil {\n\
+		fmt.Fprintln(os.Stderr, "Error while creating", outfile, "-", err)\n\
+		return nil, errors.New("Unable to download file")\n\
+	}\n\
+	defer output.Close()\n\
+\n\
+	n, err := io.Copy(output, resp.Body)\n\
+	if err != nil {\n\
+		fmt.Fprintln(os.Stderr, "Error while downloading", reqUrl, "-", err)\n\
+		return nil, errors.New("Unable to download file")\n\
+	}\n\
+\n\
+	fmt.Println(n, "Bytes downloaded.")\n\
+	return nil, nil\n\
+}\n\
+\n\
+func GetClient(url string) *http.Client {\n\
+\n\
+    if string(url[4]) == "s" {\n\
+        SecureHttpFlag = true\n\
+        tr := &http.Transport{\n\
+            TLSClientConfig: &tls.Config{InsecureSkipVerify: true},\n\
+        }\n\
+        client = &http.Client{\n\
+		Timeout: time.Duration(TimeoutSeconds) * time.Second,\n\
+		Transport: tr,\n\
+        }\n\
+    } else{\n\
+		client = &http.Client{Timeout: time.Duration(TimeoutSeconds)*time.Second}\n\
+    }\n\
+    return client\n\
+\n\
+}\n\
+\n\
+func RestUpload(reqType string, url string,  file string, headerMap map[string]string) ([]byte, error) {\n\
+\n\
+    var b bytes.Buffer\n\
+    SecureHttpFlag = false\n\
+    w := multipart.NewWriter(&b)\n\
+    f, err := os.Open(file)\n\
+    if err != nil {\n\
+        return nil, err\n\
+    }\n\
+    defer f.Close()\n\
+    fw, err := w.CreateFormFile("filename", file)\n\
+    if err != nil {\n\
+        return nil, err\n\
+    }\n\
+    if _, err = io.Copy(fw, f); err != nil {\n\
+        return nil, err\n\
+    }\n\
+    w.Close()\n\
+\n\
+    req, err := http.NewRequest(reqType, url, &b)\n\
+    if err != nil {\n\
+        return nil, err\n\
+    }\n\
+\n\
+    for key, value := range headerMap {\n\
+        req.Header.Set(key, value)\n\
+    }\n\
+    req.Header.Set("Content-Type", w.FormDataContentType())\n\
+\n\
+    var client *http.Client\n\
+    client = GetClient(url)\n\
+    res, err := client.Do(req)\n\
+    if err != nil {\n\
+	return nil, err\n\
+    }\n\
+    defer res.Body.Close()\n\
+\n\
+    body,err := ioutil.ReadAll(res.Body)\n\
+    if err != nil {\n\
+        fmt.Fprintln(os.Stderr, "Unable to read response body: ", err)\n\
+        return nil, err\n\
+    }\n\
+    if res.StatusCode != 200 {\n\
+        var errResponse invalidResponse\n\
+        err = json.Unmarshal(body, &errResponse)\n\
+        if err != nil {\n\
+            fmt.Fprintln(os.Stderr, "Unable to parse error response")\n\
+        }\n\
+        fmt.Fprintln(os.Stderr, errResponse.Message)\n\
+        return nil, errors.New(errResponse.Message)\n\
+    }\n\
+\n\
+    return body, nil\n\
+}\n\
+\n\
+\n\
+func GetTokenAndUrl()(string, string) {\n\
+    f,err := os.Open(SessionFile)\n\
+    token, url := "NONE", "NONE"\n\
+    if err != nil {\n\
+        return token, url\n\
+    }\n\
+    scanner:=bufio.NewScanner(f)\n\
+    for scanner.Scan(){\n\
+        line := scanner.Text()\n\
+        s := strings.Split(line, "=")\n\
+        if s[0] == "TOKEN" {\n\
+            token = s[1]\n\
+        } else if s[0] == "URL" {\n\
+            url = s[1]\n\
+        }\n\
+    }\n\
+    return token, url\n\
+}\n\
+\n\
 func ExecuteCommand(c *cli.Context, f fn) {\n\
-    RlSession.SetPrompt("cli$ ")\n\
-    f(c, "", "", RestFunction)\n\
-    return\n\
-}\n'
+    var retbool bool\n\
+    token, url := GetTokenAndUrl()\n\
+    if c.Command.Name == "download" || \n\
+        retbool = f(c, token, url, RestDownload)\n\
+    } else if c.Command.Name == "upload" {\n\
+        retbool = f(c, token, url, RestUpload)\n\
+    } else {\n\
+        retbool = f(c, token, url, RestFunction)\n\
+    }\n\
+\n\
+    return \n\
+}'   
+    logger.info("GetCommonTemplate success.")
     return template
+
 def GetFunctionTemplate(feature):
+    logger.info("GetFunctionTemplate")
     header = 'import (\n\
          "fmt"\n\
          "github.com/codegangsta/cli"\n\
@@ -77,10 +408,12 @@ func YourDummyFunction(c *cli.Context, token string, url string, httpcall common
     return true\n\
 }\n'
 
+    logger.info("GetFunctionTemplate success")
     return 'package '+feature+'\n'+ header + template
 
 
 def GetActionTemplate(subcmd):
+    logger.info("GetActionTemplate")
     template = '\n\
                  {\n\
                     Name:      \"'+subcmd +'\",\n\
@@ -94,9 +427,11 @@ def GetActionTemplate(subcmd):
                         return nil\n\
                     },\n\
                  },\n'
+    logger.info("GetActionTemplate success")
     return template
 
 def FillFlagsTemplate(val):
+    logger.info("FillFlagsTemplate.")
     try:
         data = ''
         for k, v in val.items():
@@ -109,13 +444,16 @@ def FillFlagsTemplate(val):
                             Usage:       \"('+ k.capitalize() +') Place your message",\n\
                         },\n'
                 data = data + tmp
+        logger.info("success")
         return data
     except Exception as e:
+        logger.error("FillFlagsTemplate.", e)
         print e
      
     
 
 def GetFlagsTemplate(subcmd, val):
+    logger.info("GetFlagsTemplate")
     data = FillFlagsTemplate(val)
     templates = '\n\
                  {\n\
@@ -130,9 +468,11 @@ def GetFlagsTemplate(subcmd, val):
                     },\n\
                  },\n'
 
+    logger.info("GetFlagsTemplate success.")
     return  templates
 
 def GetFlagsTemplateSingle(subcmd, val):
+    logger.info("GetFlagsTemplateSingle")
     data = FillFlagsTemplate(val)
     templates = '\n\
                  {\n\
@@ -147,9 +487,11 @@ def GetFlagsTemplateSingle(subcmd, val):
                     },\n\
                  },\n'
 
+    logger.info("GetFlagsTemplateSingle success")
     return  templates
 
 def GetTemplate(subcmd):
+    logger.info("GetTemplate")
     template = '\n\
                  {\n\
                     Name:      \"'+subcmd +'\",\n\
@@ -164,10 +506,12 @@ def GetTemplate(subcmd):
                     },\n\
                     Subcommands: '+subcmd.capitalize()+'Commands,\n\
                  },\n'
+    logger.info("GetTemplate success")
     return template
 
 
 def GetLoggerTemplate():
+    logger.info("GetLoggerTemplate")
     template = 'package logger\n\
 import (\n\
     "github.com/hhkbp2/go-logging"\n\
@@ -237,12 +581,14 @@ func GetLoggerName(name string) string {\n\
     return "cli"\n\
 }\n\
 '
+    logger.info("GetLoggerTemplate success")
     return template
 
 
 
 
 def GetCommandTemp(feature):
+    logger.info("GetCommandTemp")
     template = '\n        {\n\
             Name:      "'+feature+'",\n\
             Usage:     "Your Usage",\n\
@@ -256,10 +602,12 @@ def GetCommandTemp(feature):
             },\n\
             Subcommands: '+feature+'.'+feature.capitalize()+'Commands,\n\
         },'
+    logger.info("GetCommandTemp success")
     return template
 
 def GetCommandHeader(features, val, cli_name):
     
+    logger.info("GetCommandHeader")
     commands = '    commands := []cli.Command{\n\
                  {\n\
                      Name:      "help",\n\
@@ -328,6 +676,7 @@ import (\n\
     template += cmList + completer + setup + commands + foot
     
         
+    logger.info(" GetCommandHeader success.")
     return template 
 
 def BuildTemplate(cli_name):
