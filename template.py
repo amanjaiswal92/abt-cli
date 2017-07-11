@@ -64,7 +64,7 @@ func PrintJson(body []byte) bool {\n\
             fmt.Fprintln(os.Stderr, "Unable to pretty print JSON: ", err)\n\
             return false\n\
         }\n\
-        fmt.Print(string(out.Bytes())+"\n")\n\
+        fmt.Print(string(out.Bytes()))\n\
         return true\n\
 }\n\
 \n\
@@ -373,14 +373,12 @@ func ExecuteCommand(c *cli.Context, f fn) bool {\n\
     }\n\
 \n\
     return retbool \n\
-}\n\
-    return \n\
 }'   
     logger.info("GetCommonTemplate success.")
     return template
 
 def GetEnv():
-    template = '
+    template = '\n\
 #!/usr/bin/env bash\n\
 # if the environment has been setup before clean it up\n\
 if [ $GOBIN ]; then\n\
@@ -402,12 +400,9 @@ def GetFunctionTemplate(feature):
          "fmt"\n\
          "github.com/codegangsta/cli"\n\
          "product/common"\n\
-         "product/logger"\n\
          "os"\n\
        )\n'
 
-    log  = 'var logs = logger.GetLogger(logger.GetLoggerName("'+feature+'"))\n'
-    header += log
     template = '\n\
 func YourDummyFunction(c *cli.Context, token string, url string, httpcall common.RestCall) bool{\n\
 \n\
@@ -541,84 +536,6 @@ def GetTemplate(subcmd):
     logger.info("GetTemplate success")
     return template
 
-
-def GetLoggerTemplate():
-    logger.info("GetLoggerTemplate")
-    template = 'package logger\n\
-import (\n\
-    "github.com/hhkbp2/go-logging"\n\
-    "os"\n\
-    "fmt"\n\
-    "encoding/json"\n\
-    "io/ioutil"\n\
-    "time"\n\
-)\n\
-\n\
-type Loggers struct {\n\
-   LoggerNames map[string]string `json:"loggers"`\n\
-}\n\
-\n\
-var Logs []string\n\
-\n\
-func InitLog(logFile ...string) {\n\
-   if (len(logFile) != 0) {\n\
-       _, err_ := os.Stat(logFile[0])\n\
-\n\
-       if os.IsNotExist(err_){\n\
-           fmt.Println("Log file path does not exist.")\n\
-           return\n\
-       }\n\
-       file, _ := ioutil.ReadFile(logFile[0])\n\
-       var loggers Loggers\n\
-       json.Unmarshal(file, &loggers)\n\
-       for key := range loggers.LoggerNames {\n\
-           Logs = append(Logs, key)\n\
-       }\n\
-\n\
-       if err := logging.ApplyConfigFile(logFile[0]); err != nil {\n\
-           fmt.Println("Invalid log config file.")\n\
-       }\n\
-    }else{\n\
-        filePath := os.Getenv("HOME")+"/.mycli.log"\n\
-        fileMode := os.O_APPEND\n\
-        bufferSize := 0\n\
-        bufferFlushTime := 30 * time.Second\n\
-        inputChanSize := 0\n\
-        fileMaxBytes := uint64(100 * 1024 * 1024)\n\
-        backupCount := uint32(10)\n\
-        handler := logging.MustNewRotatingFileHandler(\n\
-        filePath, fileMode, bufferSize, bufferFlushTime, inputChanSize,\n\
-        fileMaxBytes, backupCount)\n\
-        format := "%(asctime)s (%(filename)s:%(lineno)d:%(funcname)s) %(levelname)s : %(message)s"\n\
-        dateFormat := "%Y-%m-%d %H:%M:%S.%3n"\n\
-        formatter := logging.NewStandardFormatter(format, dateFormat)\n\
-        handler.SetFormatter(formatter)\n\
-\n\
-        logs := GetLogger(GetLoggerName("ascli"))\n\
-        logs.SetLevel(logging.LevelInfo)\n\
-        logs.AddHandler(handler)\n\
-    }\n\
-}\n\
-\n\
-func GetLogger(name string) logging.Logger {\n\
-    return logging.GetLogger(name)\n\
-}\n\
-\n\
-func GetLoggerName(name string) string {\n\
-    for _ ,key := range Logs {\n\
-        if name == key {\n\
-            return key\n\
-        }\n\
-    }\n\
-    return "cli"\n\
-}\n\
-'
-    logger.info("GetLoggerTemplate success")
-    return template
-
-
-
-
 def GetCommandTemp(feature):
     logger.info("GetCommandTemp")
     template = '\n        {\n\
@@ -695,7 +612,11 @@ import (\n\
     for f in features:
         
         template += "    \"product/" + f + "\"\n"
-        k,v = val[i].keys()
+        try:
+            k,v = val[i].keys()
+        except:
+            k, v = "", ""
+            
         if  (k=="required" and v == "optional") or (v == "required" and k == "optional"):
             completer += '\n        readline.PcItem("' + f + '"),\n'
             isCommon = True
@@ -723,7 +644,7 @@ go get  github.com/olekukonko/tablewriter\n\
 go get  github.com/kballard/go-shellquote\n\
 go get golang.org/x/crypto/ssh/terminal\n\
 go install cli/src/product/productcli/'+ cli_name +'.go\n\
-
+'
     return template
 
 
@@ -736,13 +657,11 @@ import (\n\
     "os"\n\
     "os/signal"\n\
     "syscall"\n\
-    "product/logger"\n\
     "product/common"\n\
     "product/commandHandler"\n\
     "github.com/kballard/go-shellquote"\n\
 )\n\
 \n\
-var logs = logger.GetLogger(logger.GetLoggerName("cli"))\n\
 var Version = "0.0"\n\
 \n\
 func main() {\n\
@@ -773,10 +692,8 @@ func main() {\n\
             words, err := shellquote.Split("cmd " + line)\n\
             if err != nil {\n\
                 fmt.Println(err)\n\
-                logs.Error(err)\n\
                 continue\n\
             }\n\
-            logger.InitLog()\n\
             console.Run(words)\n\
         }\n\
         return nil\n\

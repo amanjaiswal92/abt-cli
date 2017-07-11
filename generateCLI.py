@@ -226,10 +226,6 @@ def createCli(data):
         fp = open(PROJECT +"/cli/src/product/common/common.go","w")
         fp.write(tm.GetCommonTemplate())
         fp.close()
-        logger.info("Logger template")
-        fp = open(PROJECT+"/cli/src/product/logger/logger.go","w")
-        fp.write(tm.GetLoggerTemplate())
-        fp.close()
         logger.info("CLI template")
         fp = open(PROJECT+"/cli/src/product/productcli/"+ CLI_NAME +".go","w")
         fp.write(tm.GetCliTemplate(CLI_NAME))
@@ -238,7 +234,10 @@ def createCli(data):
         fp = open(PROJECT+"/build.sh","w")
         fp.write(tm.BuildTemplate(CLI_NAME))
         fp.close()
-        
+        logger.info("env template")
+        fp = open(PROJECT+"/env.sh","w")
+        fp.write(tm.GetEnv())
+        fp.close() 
     except Exception as e:
         logger.error(e)
         print e
@@ -252,7 +251,7 @@ def generateBasicStructure():
         os.makedirs(PROJECT)
     os.chdir(PROJECT)
     dir1 = ['cli', 'cli/bin', 'cli/docs', 'cli/pkg', 'cli/src', 'cli/src/product']
-    dir2 = ['cli/src/product/common', 'cli/src/product/logger', 'cli/src/product/commandHandler', 'cli/src/product/productcli']
+    dir2 = ['cli/src/product/common', 'cli/src/product/commandHandler', 'cli/src/product/productcli']
     dirs = dir1 + dir2
     try:
         for i in dirs:
