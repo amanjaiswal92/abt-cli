@@ -379,6 +379,23 @@ func ExecuteCommand(c *cli.Context, f fn) bool {\n\
     logger.info("GetCommonTemplate success.")
     return template
 
+def GetEnv():
+    template = '
+#!/usr/bin/env bash\n\
+# if the environment has been setup before clean it up\n\
+if [ $GOBIN ]; then\n\
+    PATH=$(echo $PATH | sed -e "s;\(^$GOBIN:\|:$GOBIN$\|:$GOBIN\(:\)\);\2;g")\n\
+fi\n\
+\n\
+CLI_DIR=$PWD\n\
+export CTEST_OUTPUT_ON_FAILURE=1\n\
+export GOPATH=$CLI_DIR/cli\n\
+export LD_LIBRARY_PATH=\n\
+export DYLD_LIBRARY_PATH=\n\
+export GOBIN=$GOPATH/bin\n\
+export PATH=$GOBIN:$PATH'
+    return template
+
 def GetFunctionTemplate(feature):
     logger.info("GetFunctionTemplate")
     header = 'import (\n\
@@ -698,20 +715,15 @@ def BuildTemplate(cli_name):
     template = '#!/usr/bin/env bash\n\
 # set up our environment\n\
 . ./env.sh\n\
-if [ -d "cli/src/git.apache.org/thrift.git" ] ; then\n\
-    rm -rf cli/src/git.apache.org/thrift.git\n\
-fi\n\
 # build cli executable\n\
 echo Building cli...$GOPATH\n\
 go get github.com/codegangsta/cli\n\
 go get github.com/chzyer/readline\n\
 go get  github.com/olekukonko/tablewriter\n\
 go get  github.com/kballard/go-shellquote\n\
-git clone https://github.com/apache/thrift.git cli/src/git.apache.org/thrift.git\n\
-go get github.com/hhkbp2/go-logging\n\
+go get golang.org/x/crypto/ssh/terminal\n\
 go install cli/src/product/productcli/'+ cli_name +'.go\n\
-cp -f cli/src/github.com/codegangsta/cli/autocomplete/bash_autocomplete cli/bin/.\n\
-'
+
     return template
 
 
