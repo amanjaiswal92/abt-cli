@@ -6,3 +6,9 @@ Stop writing the same codes every time. abt-cli generates them and save you a la
 This will take your command structure in JSON format and generate codes and directory structure.
 
 Only thing you have to do is just place your command description, JSON output structure in golang and your RESTAPI URL.
+
+#Built-in commands are:
+login 
+logout 
+exit 
+help 
