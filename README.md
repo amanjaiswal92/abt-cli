@@ -7,8 +7,22 @@ This will take your command structure in JSON format and generate codes and dire
 
 Only thing you have to do is just place your command description, JSON output structure in golang and your RESTAPI URL.
 
+
+# Prerequisites
+  python2.7, golang-1.6 or above
+  
 # Built-in commands are:
 login
 logout
 exit
 help
+
+# How to write command JSON structure?
+
+# How to generate CLI source code?
+
+# How to build go source?
+
+# How to run CLI?
+
+
