@@ -17,38 +17,34 @@ def StructureHeaderTemplates(feature):
 
 def GetCommonTemplate():
     logger.info("GetCommonTemplate")
-
     template = '\n\
-package common \n\
+package common\n\
 import (\n\
 	"fmt"\n\
 	"github.com/codegangsta/cli"\n\
 	"github.com/chzyer/readline"\n\
 	"io/ioutil"\n\
-        "net"\n\
-        "net/url"\n\
 	"net/http"\n\
 	"os"\n\
 	"bytes"\n\
 	"encoding/json"\n\
-	"time"\n\
 	"errors"\n\
 	"strings"\n\
 	"io"\n\
+	"time"\n\
 	"bufio"\n\
 	"mime/multipart"\n\
-	"regexp"\n\
         "crypto/x509"\n\
 	"crypto/tls"\n\
-        "strconv"\n\
 )\n\
 \n\
-var SessionFile string\n\
-const DefaultTimeoutSeconds int = 60\n\
-const DefaultSessionTimeoutMinutes int = 60\n\
+\n\
+var SessionFile string = os.Getenv("HOME")+"/.pioSessions"\n\
+const DefaultTimeoutSeconds int = 5\n\
+const DefaultSessionTimeoutMinutes int = 6\n\
 var TimeoutSeconds int = DefaultTimeoutSeconds\n\
 var RlSession *readline.Instance\n\
-\n\
+var IsLoggedIn bool = false\n\
 var InteractiveMode bool\n\
 var SecureHttpFlag bool\n\
 \n\
@@ -57,8 +53,11 @@ type invalidResponse struct {\n\
     Success bool   `json:"success"`\n\
 }\n\
 \n\
+func ExitFromCli(ctx *cli.Context) {\n\
+    os.Exit(0)\n\
+}\n\
 \n\
-func Jsonfy(body []byte) bool {\n\
+func PrintJson(body []byte) bool {\n\
         var out bytes.Buffer\n\
         err := json.Indent(&out, body, "", "  ")\n\
         if err != nil {\n\
@@ -69,10 +68,11 @@ func Jsonfy(body []byte) bool {\n\
         return true\n\
 }\n\
 \n\
-\n\
-func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[string]string, caFile string, skipVerifyFlag bool)([]byte, error){\n\
+func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error){\n\
     var bodyStream = []byte(reqBody)\n\
+    var  skipVerifyFlag bool = false\n\
     tls_connection_url := reqUrl\n\
+    caFile := ""\n\
     req, err := http.NewRequest(reqType, reqUrl, bytes.NewBuffer(bodyStream))\n\
     if err != nil {\n\
         fmt.Fprintln(os.Stderr, "Error creating request: ", err)\n\
@@ -90,6 +90,7 @@ func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[stri
             InsecureSkipVerify: true,\n\
         }\n\
     } else {\n\
+        // Load CA cert\n\
         caCert, err := ioutil.ReadFile(caFile)\n\
         if err != nil {\n\
             fmt.Println("Failed to open certificate file")\n\
@@ -131,11 +132,20 @@ func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[stri
 	}\n\
 	conn.Close()\n\
     }\n\
-    client = GetClient(url)\n\
+    if string(reqUrl[4]) == "s" {\n\
+        tr := &http.Transport{\n\
+	    TLSClientConfig: tlsConfig,\n\
+        }\n\
+        client = &http.Client{\n\
+	    Timeout: time.Duration(TimeoutSeconds) * time.Second,\n\
+	    Transport: tr,\n\
+        }\n\
+    } else {\n\
+        client = &http.Client{Timeout: time.Duration(TimeoutSeconds)*time.Second}\n\
+    }\n\
     resp, err := client.Do(req)\n\
     if err != nil {\n\
     	fmt.Fprintln(os.Stderr, err)\n\
-        logs.Error(err)\n\
         return nil, err\n\
     }\n\
 \n\
@@ -143,26 +153,24 @@ func LoginRest(reqType string, reqUrl string, reqBody string, headerMap map[stri
     body,err := ioutil.ReadAll(resp.Body)\n\
     if err != nil {\n\
     	fmt.Fprintln(os.Stderr, "Unable to read response body: ", err)\n\
-        logs.Error("Unable to read response body: ", err)\n\
     	return nil, err\n\
     }\n\
     if resp.StatusCode != 200 {\n\
     	fmt.Fprintln(os.Stderr, resp.Status)\n\
-        logs.Error(resp.Status)\n\
     	var errResponse invalidResponse\n\
     	err = json.Unmarshal(body, &errResponse)\n\
         if err != nil {\n\
             fmt.Fprintln(os.Stderr, "Unable to parse error response")\n\
-            logs.Error("Unable to parse error response")\n\
         }\n\
         fmt.Fprintln(os.Stderr, errResponse.Message)\n\
-        logs.Error(errResponse.Message)\n\
     	return nil, errors.New(errResponse.Message)\n\
     }\n\
     return body, nil\n\
+\n\
+\n\
 }\n\
 \n\
-\n\
+type RestCall func(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error)\n\
 func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[string]string)([]byte, error){\n\
 	var bodyStream = []byte(reqBody)\n\
 	req, err := http.NewRequest(reqType, reqUrl, bytes.NewBuffer(bodyStream))\n\
@@ -173,9 +181,9 @@ func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[s
 		req.Header.Set(key, value)\n\
 	}\n\
 	var client *http.Client\n\
-        client = GetClient(url)\n\
+        client = GetClient(reqUrl)\n\
 \n\
-   resp, err := client.Do(req)\n\
+        resp, err := client.Do(req)\n\
 \n\
     if err != nil {\n\
         fmt.Fprintln(os.Stderr, err)\n\
@@ -188,9 +196,8 @@ func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[s
     	fmt.Fprintln(os.Stderr, "Unable to read response body: ", err)\n\
     	return nil, err\n\
     }\n\
-    if resp.StatusCode != 200 {\n\
+    if resp.StatusCode != 200 && resp.StatusCode != 201 {\n\
     	fmt.Fprintln(os.Stderr, resp.Status)\n\
-        logs.Error(resp.Status)\n\
     	var errResponse invalidResponse\n\
     	err = json.Unmarshal(body, &errResponse)\n\
         if err != nil {\n\
@@ -199,20 +206,12 @@ func RestFunction(reqType string, reqUrl string, reqBody string, headerMap map[s
         fmt.Fprintln(os.Stderr, errResponse.Message)\n\
     	return nil, errors.New(errResponse.Message)\n\
     }\n\
-    if resp.Header["Token"] != nil {\n\
-        if string(resp.Header["Token"][0]) != token_string {\n\
-            err = resetToken(string(resp.Header["Token"][0]))\n\
-            if err != nil {\n\
-                return nil, err\n\
-            }\n\
-        }\n\
-    }\n\
-\n\
     return body, nil\n\
 }\n\
 \n\
 func RestDownload(reqType string, reqUrl string, outfile string, headerMap map[string]string)([]byte, error){\n\
 	fmt.Println("Downloading", reqUrl, "to", outfile)\n\
+        \n\
 	req, err := http.NewRequest(reqType, reqUrl, nil)\n\
 \n\
 	if err != nil {\n\
@@ -225,7 +224,7 @@ func RestDownload(reqType string, reqUrl string, outfile string, headerMap map[s
 	var client *http.Client\n\
 	SecureHttpFlag = false\n\
 \n\
-        client = GetClient(url)\n\
+        client = GetClient(reqUrl)\n\
 	resp, err := client.Do(req)\n\
 	if err != nil {\n\
             return nil, err\n\
@@ -257,17 +256,18 @@ func RestDownload(reqType string, reqUrl string, outfile string, headerMap map[s
 \n\
 func GetClient(url string) *http.Client {\n\
 \n\
+    var client *http.Client\n\
     if string(url[4]) == "s" {\n\
         SecureHttpFlag = true\n\
         tr := &http.Transport{\n\
             TLSClientConfig: &tls.Config{InsecureSkipVerify: true},\n\
         }\n\
         client = &http.Client{\n\
-		Timeout: time.Duration(TimeoutSeconds) * time.Second,\n\
+		//Timeout: time.Duration(TimeoutSeconds) * time.Second,\n\
 		Transport: tr,\n\
         }\n\
     } else{\n\
-		client = &http.Client{Timeout: time.Duration(TimeoutSeconds)*time.Second}\n\
+		client = &http.Client{ }\n\
     }\n\
     return client\n\
 \n\
@@ -291,6 +291,7 @@ func RestUpload(reqType string, url string,  file string, headerMap map[string]s
         return nil, err\n\
     }\n\
     w.Close()\n\
+\n\
 \n\
     req, err := http.NewRequest(reqType, url, &b)\n\
     if err != nil {\n\
@@ -331,6 +332,10 @@ func RestUpload(reqType string, url string,  file string, headerMap map[string]s
 \n\
 func GetTokenAndUrl()(string, string) {\n\
     f,err := os.Open(SessionFile)\n\
+\n\
+    if err != nil {\n\
+        return "NONE", "NONE"\n\
+    }\n\
     token, url := "NONE", "NONE"\n\
     if err != nil {\n\
         return token, url\n\
@@ -347,11 +352,19 @@ func GetTokenAndUrl()(string, string) {\n\
     }\n\
     return token, url\n\
 }\n\
-\n\
-func ExecuteCommand(c *cli.Context, f fn) {\n\
+type fn func(*cli.Context, string, string, RestCall) bool\n\
+func ExecuteCommand(c *cli.Context, f fn) bool {\n\
     var retbool bool\n\
+    if IsLoggedIn == false {\n\
+        fmt.Println("Please login")\n\
+        return true\n\
+    }\n\
     token, url := GetTokenAndUrl()\n\
-    if c.Command.Name == "download" || \n\
+    if token == "None" || url == "None" {\n\
+        fmt.Println("Please Login.")\n\
+        return false\n\
+    }\n\
+    if c.Command.Name == "download" { \n\
         retbool = f(c, token, url, RestDownload)\n\
     } else if c.Command.Name == "upload" {\n\
         retbool = f(c, token, url, RestUpload)\n\
@@ -359,6 +372,8 @@ func ExecuteCommand(c *cli.Context, f fn) {\n\
         retbool = f(c, token, url, RestFunction)\n\
     }\n\
 \n\
+    return retbool \n\
+}\n\
     return \n\
 }'   
     logger.info("GetCommonTemplate success.")
