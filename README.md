@@ -7,8 +7,8 @@ This will take your command structure in JSON format and generate codes and dire
 
 Only thing you have to do is just place your command description, JSON output structure in golang and your RESTAPI URL.
 
-# Built-in commands are:\n
-# login\n 
-# logout\n
-# exit\n
-# help\n
+# Built-in commands are:
+login
+logout
+exit
+help
